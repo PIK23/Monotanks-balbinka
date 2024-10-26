@@ -46,11 +46,11 @@ class ExampleBot(HackathonBot):
                 Rotation(None, RotationDirection.LEFT),
                 Rotation(None, RotationDirection.RIGHT),
                 Rotation(None, None),  # Useless, better use Pass()
-                AbilityUse(Ability.FIRE_BULLET),
-                AbilityUse(Ability.FIRE_DOUBLE_BULLET),
-                AbilityUse(Ability.USE_LASER),
-                AbilityUse(Ability.USE_RADAR),
-                AbilityUse(Ability.DROP_MINE),
+                #AbilityUse(Ability.FIRE_BULLET),
+                #AbilityUse(Ability.FIRE_DOUBLE_BULLET),
+                #AbilityUse(Ability.USE_LASER),
+                #AbilityUse(Ability.USE_RADAR),
+                #AbilityUse(Ability.DROP_MINE),
                 Pass(),
             ]
         )
