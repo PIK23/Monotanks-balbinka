@@ -9,6 +9,8 @@ import random
 
 from hackathon_bot import *
 from dataclasses import dataclass
+from typing import List, Tuple, Dict
+from collections import defaultdict
 
 def get_poses_for_zone(zone: Zone) -> list[tuple[int,int]]:
     return [Pos(x+zone.x,y+zone.y) for x in range(zone.width) for y in range(zone.height)]
@@ -17,6 +19,12 @@ def get_poses_for_zone(zone: Zone) -> list[tuple[int,int]]:
 class Pos():
     x: int
     y: int 
+    def __getitem__(self, index):
+        if index == 0:
+            return self.x
+        elif index == 1:
+            return self.y
+
 
 
 opposite_dirs = {
@@ -62,12 +70,41 @@ def bfs(map: Map, start: Pos, target: Pos) -> list[Pos]:
             parents[x]=cur
         stack.extend(adj)
 
+
+@dataclass
+class EnemyData:
+    turret: Direction
+    tank: Direction
+    position: Tuple[int, int]
+    visible: bool
+
+
+@dataclass
+class BulletData:
+    bullet: Bullet
+    position: Pos
+
+
+def get_move(direction) -> Tuple[int, int]:
+    if direction == Direction.RIGHT:
+        return 0, 1
+    if direction == Direction.LEFT:
+        return 0, -1
+    if direction == Direction.UP:
+        return 1, -1
+    if direction == Direction.DOWN:
+        return 1, 1
+
+
 class ExampleBot(HackathonBot):
 
     def __init__(self):
         super().__init__()
         self.my_pos: Pos = None
         self.my_tank: AgentTank = None
+        self.enemies: Dict[str, EnemyData] = defaultdict
+        self.bullets: Dict[str, BulletData] = defaultdict
+        self.not_wall_map: List[Pos] = [] # TODO
 
     def find_me(self, game_state: GameState) -> tuple[Pos,AgentTank]:
         for y,row in enumerate(game_state.map.tiles):
@@ -76,6 +113,16 @@ class ExampleBot(HackathonBot):
                     for ent in tile.entities:
                         if isinstance(ent, AgentTank):
                             return Pos(x,y),ent 
+    
+    # TODO get visible positions
+    def parse_tiles_positions(self, game_state: GameState, positions: List[Pos]):
+        map = game_state.map.tiles
+        for x, y in positions:
+            for entity in map[x, y]:
+                if isinstance(entity, PlayerTank) and game_state.my_agent.id != entity.owner_id:
+                    self.enemies[entity.owner_id] = EnemyData(entity.turret, entity.direction, (x, y), True) 
+                if isinstance(entity, Bullet):
+                    self.bullets[entity.id] = BulletData(entity, Pos(x, y))
 
     def go_to(self, game_state: GameState, target: Pos):
         path = bfs(game_state.map, self.my_pos, target)
@@ -124,10 +171,51 @@ class ExampleBot(HackathonBot):
                     closest=tile
         
         return self.go_to(game_state, closest)
+    
+    def calculate_visible(self) -> List[Pos]: ...  # TODO
+
+    def update_visibility(self, game_state: GameState):
+        tiles_to_check = self.calculate_visible()
+        self.parse_tiles_positions(game_state, tiles_to_check)
+
+    def predict_bullets(self):
+        destoyed_bullets = []
+        for id, bullet in self.bullets.items():
+            index, direction = get_move(bullet.bullet.direction)
+            for _ in range(bullet.bullet.speed):
+                self.bullets[id][index] += direction
+                if self.bullets[id].position not in self.not_wall_map:  # czyli jest w ścianie
+                    destoyed_bullets.append(id)
+        for bullet_id in destoyed_bullets:
+            self.bullets.pop(bullet_id)
+    
+    def laser_kill(self) -> bool:
+        if self.bot.item != ItemType.LASER:
+            return False
+        for enemy in self.enemies.values():
+            if enemy.visible:
+                if enemy.position[1] == self.bot.position[1] and \
+                   enemy.tank in [Direction.LEFT, Direction.RIGHT] and \
+                   ((self.bot.turret == Direction.RIGHT and enemy.position[0] > self.bot.position[0]) or
+                   (self.bot.turret == Direction.LEFT and enemy.position[0] < self.bot.position[0])):
+                    return True
+                if enemy.position[0] == self.bot.position[0] and \
+                   enemy.tank in [Direction.UP, Direction.DOWN] and \
+                   ((self.bot.turret == Direction.UP and enemy.position[0] < self.bot.position[0]) or
+                   (self.bot.turret == Direction.DOWN and enemy.position[0] > self.bot.position[0])):
+                    return True
+        return False
+    
+    def end_step(func):
+        def wrapper(self, *arg, **kw):
+            func()
+            self.predict_bullets()
+        return wrapper
 
     def on_lobby_data_received(self, lobby_data: LobbyData) -> None:
         print(f"Lobby data received: {lobby_data}")
 
+    @end_step
     def next_move(self, game_state: GameState) -> ResponseAction:
         self._print_map(game_state.map)
 
@@ -145,88 +233,6 @@ class ExampleBot(HackathonBot):
 
     def on_warning_received(self, warning: WarningType, message: str | None) -> None:
         print(f"Warning received: {warning} - {message}")
-
-    def _get_random_action(self):
-        return random.choice(
-            [
-                Movement(MovementDirection.FORWARD),
-                Movement(MovementDirection.BACKWARD),
-                Rotation(RotationDirection.LEFT, RotationDirection.LEFT),
-                Rotation(RotationDirection.LEFT, RotationDirection.RIGHT),
-                Rotation(RotationDirection.LEFT, None),
-                Rotation(RotationDirection.RIGHT, RotationDirection.LEFT),
-                Rotation(RotationDirection.RIGHT, RotationDirection.RIGHT),
-                Rotation(RotationDirection.RIGHT, None),
-                Rotation(None, RotationDirection.LEFT),
-                Rotation(None, RotationDirection.RIGHT),
-                Rotation(None, None),  # Useless, better use Pass()
-                AbilityUse(Ability.FIRE_BULLET),
-                AbilityUse(Ability.FIRE_DOUBLE_BULLET),
-                AbilityUse(Ability.USE_LASER),
-                AbilityUse(Ability.USE_RADAR),
-                AbilityUse(Ability.DROP_MINE),
-                Pass(),
-            ]
-        )
-
-    def _print_map(self, game_map: Map):
-        os.system("cls" if os.name == "nt" else "clear")
-        end = " "
-
-        for row in game_map.tiles:
-            for tile in row:
-                entity = tile.entities[0] if tile.entities else None
-
-                if isinstance(entity, Wall):
-                    print("#", end=end)
-                elif isinstance(entity, Laser):
-                    if entity.orientation is Orientation.HORIZONTAL:
-                        print("|", end=end)
-                    elif entity.orientation is Orientation.VERTICAL:
-                        print("-", end=end)
-                elif isinstance(entity, DoubleBullet):
-                    if entity.direction == Direction.UP:
-                        print("⇈", end=end)
-                    elif entity.direction == Direction.RIGHT:
-                        print("⇉", end=end)
-                    elif entity.direction == Direction.DOWN:
-                        print("⇊", end=end)
-                    elif entity.direction == Direction.LEFT:
-                        print("⇇", end=end)
-                elif isinstance(entity, Bullet):
-                    if entity.direction is Direction.UP:
-                        print("↑", end=end)
-                    elif entity.direction is Direction.RIGHT:
-                        print("→", end=end)
-                    elif entity.direction is Direction.DOWN:
-                        print("↓", end=end)
-                    elif entity.direction is Direction.LEFT:
-                        print("←", end=end)
-                elif isinstance(entity, AgentTank):
-                    print("A", end=end)
-                elif isinstance(entity, PlayerTank):
-                    print("P", end=end)
-                elif isinstance(entity, Mine):
-                    print("x" if entity.exploded else "X", end=end)
-                elif isinstance(entity, Item):
-                    match (entity.type):
-                        case SecondaryItemType.DOUBLE_BULLET:
-                            print("D", end=end)
-                        case SecondaryItemType.LASER:
-                            print("L", end=end)
-                        case SecondaryItemType.MINE:
-                            print("M", end=end)
-                        case SecondaryItemType.RADAR:
-                            print("R", end=end)
-                elif tile.zone:
-                    index = chr(tile.zone.index)
-                    index = index.upper() if tile.is_visible else index.lower()
-                    print(index, end=end)
-                elif tile.is_visible:
-                    print(".", end=end)
-                else:
-                    print(" ", end=end)
-            print()
 
 
 if __name__ == "__main__":
