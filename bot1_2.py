@@ -14,6 +14,7 @@ from typing import List, Tuple, Dict
 from collections import defaultdict
 from copy import deepcopy
 import math
+from FogOfWar import FogOfWarManager
 
 def get_poses_for_zone(zone: Zone) -> list[tuple[int,int]]:
     return [Pos(x+zone.x,y+zone.y) for x in range(zone.width) for y in range(zone.height)]
@@ -78,7 +79,7 @@ def bfs(map: Map, start: Pos, target: Pos) -> list[Pos]:
 class EnemyData:
     turret: Direction
     tank: Direction
-    position: Tuple[int, int]
+    position: Pos
     visible: bool
 
 
@@ -126,6 +127,7 @@ class ExampleBot(HackathonBot):
                 for entity in tile.entities:
                     if isinstance(entity, Wall):
                         self.wall_map[y][x] = True
+        self.fog_of_war_manager = FogOfWarManager(self.wall_map)
         self.init = True
 
     def get_tiles_to_see(self) -> List[Pos]:
@@ -198,16 +200,18 @@ class ExampleBot(HackathonBot):
                     x -= 1
         return tiles_to_see
     
-    # TODO get visible positions
-    def parse_tiles_positions(self, game_state: GameState, positions: List[Pos] = None):
+    def update_visibility(self, game_state: GameState):
+        for enemy_index in self.enemies:
+            self.enemies[enemy_index].visible = False
+
         map = game_state.map.tiles
         for position in self.get_tiles_to_see():
-                x, y = position[0], position[1]
-                for entity in map[y][x].entities:
-                    if isinstance(entity, PlayerTank) and game_state.my_agent.id != entity.owner_id:
-                        self.enemies[entity.owner_id] = EnemyData(entity.turret, entity.direction, (x, y), True) 
-                    if isinstance(entity, Bullet):
-                        self.bullets[entity.id] = BulletData(entity, Pos(x, y))
+            x, y = position[0], position[1]
+            for entity in map[y][x].entities:
+                if isinstance(entity, PlayerTank) and game_state.my_agent.id != entity.owner_id:
+                    self.enemies[entity.owner_id] = EnemyData(entity.turret, entity.direction, position, True) 
+                if isinstance(entity, Bullet):
+                    self.bullets[entity.id] = BulletData(entity, position)
 
     def go_to(self, game_state: GameState, target: Pos):
         path = bfs(game_state.map, self.my_pos, target)
@@ -257,15 +261,11 @@ class ExampleBot(HackathonBot):
         
         return self.go_to(game_state, closest)
 
-    def update_visibility(self, game_state: GameState):
-        tiles_to_check = self.get_tiles_to_see()
-        self.parse_tiles_positions(game_state, tiles_to_check)
-
-    def find_true_positions(self):
+    def get_walls(self):
         true_positions = []
-        for y, row in enumerate(self.wall_map):     
-            for x, value in enumerate(row):             
-                if not value:                              
+        for x, row in enumerate(self.wall_map):     
+            for y, value in enumerate(row):             
+                if value:                              
                     true_positions.append(Pos(x, y))      
         return true_positions
 
@@ -281,7 +281,7 @@ class ExampleBot(HackathonBot):
             for _ in range(2):  # bullet.bullet.speed
                 x, y = next_bullets[id].position[0], next_bullets[id].position[1]
                 next_bullets[id].position = Pos(x + direction if index == 0 else x, y + direction if index == 1 else y)       # TODO change assingment: TypeError: 'Pos' object does not support item assignment
-                if next_bullets[id].position not in self.find_true_positions():  # czyli jest w ścianie #TODO dodać że także czołg może
+                if next_bullets[id].position in self.get_walls():  # czyli jest w ścianie #TODO dodać że także czołg może
                     destoyed_bullets.append(id)
         
         for bullet_id in destoyed_bullets:
@@ -294,18 +294,63 @@ class ExampleBot(HackathonBot):
     
     def update_bullets(self):
         self.bullets = self.predict_bullets()
-
-    def dodge_bullet(self):
+    
+    # for themself self.get_dodge_actions(self.my_pos, self.my_tank.direction)
+    def get_dodge_action(self, obj_pos, obj_rot) -> Movement | Rotation | None:
         for bullet in self.bullets.values():
             # check if bullet is going towards tank
-            if bullet.position[0] == self.my_pos[0] and \
-                ((bullet.bullet.direction == Direction.RIGHT and bullet.position[1] < self.my_pos[1]) or
-                (bullet.bullet.direction == Direction.LEFT and bullet.position[1] > self.my_pos[1])):
-                    return True
-            if bullet.position[1] == self.my_pos[1] and \
-                ((bullet.bullet.direction == Direction.UP and bullet.position[0] > self.my_pos[0]) or
-                (bullet.bullet.direction == Direction.DOWN and bullet.position[0] < self.my_pos[0])):
-                    return True
+            if bullet.position[0] == obj_pos[0] and \
+                ((bullet.bullet.direction == Direction.RIGHT and bullet.position[1] < obj_pos[1]) or
+                (bullet.bullet.direction == Direction.LEFT and bullet.position[1] > obj_pos[1])):
+                    if obj_rot in [Direction.DOWN, Direction.UP]:  # check if bullet and tank directions crosses
+                        # check if up or down is not a wall
+                        walls = self.get_walls()
+
+                        up_move = Pos(obj_pos[0], obj_pos[1] - 1)
+                        if up_move not in walls:
+                            return Movement(MovementDirection.FORWARD if obj_rot == Direction.UP else MovementDirection.BACKWARD)
+
+                        down_move = Pos(obj_pos[0], obj_pos[1] + 1)
+                        if down_move not in walls:
+                            return Movement(MovementDirection.BACKWARD if obj_rot == Direction.UP else MovementDirection.FORWARD)
+                    elif abs(bullet.position[1] - obj_pos[1]) > 2:  # have time to execute 2 actions
+                        walls = self.get_walls()
+
+                        up_move = Pos(obj_pos[0], obj_pos[1] - 1)
+                        if up_move not in walls:
+                            return Rotation(RotationDirection.RIGHT if obj_rot == Direction.LEFT else RotationDirection.LEFT)
+
+                        down_move = Pos(obj_pos[0], obj_pos[1] + 1)
+                        if down_move not in walls:
+                            return Movement(RotationDirection.LEFT if obj_rot == Direction.LEFT else RotationDirection.RIGHT)
+                    else:
+                        return None  # unable to dodge
+            if bullet.position[1] == obj_pos[1] and \
+                ((bullet.bullet.direction == Direction.UP and bullet.position[0] > obj_pos[0]) or
+                (bullet.bullet.direction == Direction.DOWN and bullet.position[0] < obj_pos[0])):
+                    if obj_rot in [Direction.LEFT, Direction.RIGHT]:  # check if bullet and tank directions crosses
+                        # check if up or down is not a wall
+                        walls = self.get_walls()
+
+                        right_move = Pos(obj_pos[0] + 1, obj_pos[1])
+                        if right_move not in walls:
+                            return Movement(MovementDirection.FORWARD if obj_rot == Direction.RIGHT else MovementDirection.BACKWARD)
+
+                        left_move = Pos(obj_pos[0] - 1, obj_pos[1])
+                        if left_move not in walls:
+                            return Movement(MovementDirection.BACKWARD if obj_rot == Direction.RIGHT else MovementDirection.FORWARD)
+                    elif abs(bullet.position[0] - obj_pos[0]) > 2:  # have time to execute 2 actions
+                        walls = self.get_walls()
+
+                        right_move = Pos(obj_pos[0] + 1, obj_pos[1])
+                        if right_move not in walls:
+                            return Rotation(RotationDirection.RIGHT if obj_rot == Direction.UP else RotationDirection.LEFT)
+
+                        left_move = Pos(obj_pos[0] - 1, obj_pos[1])
+                        if left_move not in walls:
+                            return Movement(RotationDirection.LEFT if obj_rot == Direction.UP else RotationDirection.RIGHT)
+                    else:
+                        return None  # unable to dodge
     
     def laser_kill(self) -> bool:
         if self.my_tank.secondary_item != ItemType.LASER:
@@ -337,23 +382,39 @@ class ExampleBot(HackathonBot):
         if not self.init:
             self.analize_map(game_state.map)
 
+            
         self.my_pos, self.my_tank = self.find_me(game_state)
+
+
+        if game_state.tick == 3:
+            pprint(self.my_pos)
+            pprint(self.my_tank)
+            temp = (self.fog_of_war_manager.calculate_visibility_grid(self.my_pos, self.my_tank.direction, self.my_tank.turret.direction))
+            
+            board = [['_' for _ in range(24)] for _ in range(24)]
+            # get vision
+            for pos in temp:
+                board[pos.x][pos.y] = 'X'
+            
+            # get walls
+            for pos in self.get_walls():
+                board[pos.x][pos.y] = 'O'
+            
+            for row in board:
+                print(" ".join(row))
+
+            pprint(temp)
+
         self.update_visibility(game_state)
         self.update_bullets()
 
-        # if game_state.tick % 10 == 0:
-        #     tiles_to_see = self.get_tiles_to_see()
-        #     print([(pos.x, pos.y) for pos in tiles_to_see])
-        #     return Rotation(None, RotationDirection.RIGHT)
-
-        return self.brain(game_state)
+        # return self.brain(game_state)
 
     def on_game_ended(self, game_result: GameResult) -> None:
         print(f"Game ended: {game_result}")
 
     def on_warning_received(self, warning: WarningType, message: str | None) -> None:
         print(f"Warning received: {warning} - {message}")
-
 
 if __name__ == "__main__":
     bot = ExampleBot()
