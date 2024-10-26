@@ -43,6 +43,7 @@ def adjacent(tiles: tuple[tuple[Tile]], pos: Pos, visited: dict[Pos, Pos]) -> tu
 def heur_select_next(stack:list[Pos]):
     return 0
 
+
 def bfs(map: Map, start: Pos, stop_criterion: callable) -> Optional[list[Pos]]:
     """Returns shortest path to a tile that matches criterion
 
@@ -88,12 +89,14 @@ class ExampleBot(HackathonBot):
         for y,row in enumerate(game_state.map.tiles):
             for x,tile in enumerate(row):
                     for ent in tile.entities:
-                        if isinstance(ent, AgentTank):
-                            self.my_pos=Pos(x,y)
-                            self.my_tank = ent
-                        elif isinstance(ent, PlayerTank):
-                            self.enemies.append(ent)
-                            self.enemies_pos.append(Pos(x,y))
+                        if isinstance(ent, PlayerTank):
+                            if ent.owner_id==game_state.my_agent.id:
+                                self.my_pos=Pos(x,y)
+                                self.my_tank = ent
+                            else:
+                                print(game_state.tick,"enemy:",ent)
+                                self.enemies.append(ent)
+                                self.enemies_pos.append(Pos(x,y))
     
     def move_towards(self, target:Pos, turret: bool):
         """Moves tank towards target, or rotates it to make it possible in future.
@@ -196,9 +199,32 @@ class ExampleBot(HackathonBot):
         
         return self.search(game_state, is_target)
     
+
+    
     def go_to_direct_line(self, game_state: GameState, target: Pos):
         def is_direct_to(pos: Pos):
-            return pos.x==target.x or pos.y==target.y
+            x_axis = pos.x==target.x
+            y_axis = pos.y==target.y
+            if x_axis:
+                # look if everything between player and target is free
+                if pos.y<target.y:
+                    r = range(pos.y+1,target.y)
+                else:
+                    r = range(target.y+1,pos.y)
+                for yi in r:
+                    if any(isinstance(ent,Wall) for ent in game_state.map.tiles[yi][pos.x].entities):
+                        return False
+                return True
+            elif y_axis:
+                if pos.x<target.x:
+                    r = range(pos.x+1,target.x)
+                else:
+                    r = range(target.x+1, pos.x)
+                for xi in r:
+                    if any(isinstance(ent,Wall) for ent in game_state.map.tiles[pos.y][xi].entities):
+                        return False
+                return True
+            return False
         
         return self.search(game_state, is_direct_to)
 
