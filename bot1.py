@@ -205,19 +205,12 @@ class ExampleBot(HackathonBot):
                    (self.bot.turret == Direction.DOWN and enemy.position[0] > self.bot.position[0])):
                     return True
         return False
-    
-    def end_step(func):
-        def wrapper(self, *arg, **kw):
-            func()
-            self.predict_bullets()
-        return wrapper
 
     def on_lobby_data_received(self, lobby_data: LobbyData) -> None:
         print(f"Lobby data received: {lobby_data}")
 
-    @end_step
     def next_move(self, game_state: GameState) -> ResponseAction:
-        self._print_map(game_state.map)
+        self.predict_bullets()
 
         # Check if the agent is dead
         if game_state.my_agent.is_dead:
