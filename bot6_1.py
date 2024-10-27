@@ -144,6 +144,9 @@ class ExampleBot(HackathonBot):
         self.visibility_cache = defaultdict()
         self.wall_map: List[List[bool]] = []
         self.last_pos: Pos = None
+
+        self.dangerous_zone = None
+        self.dangerous_ticks = 0
         
         #zone fighter
         self.last_corner: Pos = None
@@ -512,7 +515,8 @@ class ExampleBot(HackathonBot):
                     if isinstance(ent, Item) and ent.type==ItemType.DOUBLE_BULLET:
                         if taxicab(pos, self.my_pos)<2:
                             return True
-            if tile.zone and not (isinstance(tile.zone, CapturedZone) and tile.zone.player_id==self.my_tank.owner_id):
+            # if tile.zone and not (isinstance(tile.zone, CapturedZone) and tile.zone.player_id==self.my_tank.owner_id):
+            if (tile.zone and not (isinstance(tile.zone, CapturedZone) and tile.zone.player_id==self.my_tank.owner_id)) or (tile.zone and tile.zone.index != self.dangerous_zone and self.dangerous_ticks > 0):
                 return True
             return False
         
@@ -702,11 +706,25 @@ class ExampleBot(HackathonBot):
         if game_state.my_agent.is_dead:
             self.fight_started=False
             self.current_zone_fight=None
+            if self.dangerous_ticks != 50:
+                self.dangerous_ticks = 50
             # Return pass to avoid warnings from the server
             # when the bot tries to make an action with a dead tank
             return Pass()
         self.find_stuff(game_state)
         self.update_bullets()
+
+        if self.dangerous_ticks > 0:
+            self.dangerous_ticks -= 1
+            if self.dangerous_ticks == 0:
+                self.dangerous_zone = None
+
+        print(self.dangerous_ticks, self.dangerous_zone)
+
+        if zone := game_state.map.tiles[self.my_pos.y][self.my_pos.x].zone:
+            self.dangerous_ticks = 0
+            self.dangerous_zone = zone.index
+
         next_action = self.get_dodge_action(self.my_pos, self.my_tank.direction)
         if not isinstance(next_action, ResponseAction):
             next_action = self.decide_action(game_state)
