@@ -254,7 +254,7 @@ class ExampleBot(HackathonBot):
                         right_move = Pos(obj_pos[0] + 1, obj_pos[1])
                         if not self.wall_map[right_move.y][right_move.x]:
                             if distance <= 7:
-                                return Rotation(RotationDirection.RIGHT if obj_rot == Direction.UP else RotationDirection.LEFT, 0)
+                                return Rotation(RotationDirection.RIGHT if obj_rot == Direction.UP else RotationDirection.LEFT, None)
                             return distance
 
                         left_move = Pos(obj_pos[0] - 1, obj_pos[1])
@@ -263,7 +263,7 @@ class ExampleBot(HackathonBot):
                                 return Rotation(RotationDirection.LEFT if obj_rot == Direction.UP else RotationDirection.RIGHT, None)
                             return distance
                     else:
-                        return None  # unable to dodge
+                        return 0  # unable to dodge
                         
 
     def analize_map(self, map: Map):
