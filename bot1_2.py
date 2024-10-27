@@ -405,11 +405,6 @@ class ExampleBot(HackathonBot):
         
         # if not self.visibility_cache:
         #     self.calculate()
-        
-        # pprint(len(self.visibility_cache.values()))
-
-        # if len(self.visibility_cache) != self.dimension ** 2 * 4 * 4:
-        #     return Pass()
 
         self.my_pos, self.my_tank = self.find_me(game_state)
 
@@ -431,7 +426,6 @@ class ExampleBot(HackathonBot):
         #     pprint(temp)
 
         self.update_visibility(game_state)
-        pprint(self.bullets)
 
         self.update_bullets()
 
