@@ -112,6 +112,24 @@ class ExampleBot(HackathonBot):
         self.init: bool = False
         self.dimension = None
 
+        self.visibility_cache = defaultdict()
+    
+    def calculate(self):
+        rotations = [Direction.UP, Direction.RIGHT, Direction.DOWN, Direction.LEFT]
+        walls = self.get_walls()
+        for tank_rot in rotations:
+            for tur_rot in rotations:
+                for x in range(self.dimension):
+                    for y in range(self.dimension):
+                        if Pos(x, y) not in self.wall_map:
+                            key = (tank_rot, tur_rot, x, y)
+                            self.visibility_cache[key] = self.fog_of_war_manager.calculate_visibility_grid(Pos(x, y), tank_rot, tur_rot)
+
+
+    def get_cached_result(self, tank_rot, tur_rot, x, y):
+            key = (tank_rot, tur_rot, x, y)
+            return self.visibility_cache.get(key, None)
+
     def find_me(self, game_state: GameState) -> tuple[Pos, AgentTank]:
         for y,row in enumerate(game_state.map.tiles):
             for x,tile in enumerate(row):
@@ -318,11 +336,11 @@ class ExampleBot(HackathonBot):
 
                         up_move = Pos(obj_pos[0], obj_pos[1] - 1)
                         if up_move not in walls:
-                            return Rotation(RotationDirection.RIGHT if obj_rot == Direction.LEFT else RotationDirection.LEFT)
+                            return Rotation(RotationDirection.RIGHT if obj_rot == Direction.LEFT else RotationDirection.LEFT, None)
 
                         down_move = Pos(obj_pos[0], obj_pos[1] + 1)
                         if down_move not in walls:
-                            return Movement(RotationDirection.LEFT if obj_rot == Direction.LEFT else RotationDirection.RIGHT)
+                            return Movement(RotationDirection.LEFT if obj_rot == Direction.LEFT else RotationDirection.RIGHT, None)
                     else:
                         return None  # unable to dodge
             if bullet.position[1] == obj_pos[1] and \
@@ -344,11 +362,11 @@ class ExampleBot(HackathonBot):
 
                         right_move = Pos(obj_pos[0] + 1, obj_pos[1])
                         if right_move not in walls:
-                            return Rotation(RotationDirection.RIGHT if obj_rot == Direction.UP else RotationDirection.LEFT)
+                            return Rotation(RotationDirection.RIGHT if obj_rot == Direction.UP else RotationDirection.LEFT, None)
 
                         left_move = Pos(obj_pos[0] - 1, obj_pos[1])
                         if left_move not in walls:
-                            return Movement(RotationDirection.LEFT if obj_rot == Direction.UP else RotationDirection.RIGHT)
+                            return Movement(RotationDirection.LEFT if obj_rot == Direction.UP else RotationDirection.RIGHT, None)
                     else:
                         return None  # unable to dodge
     
@@ -371,6 +389,7 @@ class ExampleBot(HackathonBot):
 
     def on_lobby_data_received(self, lobby_data: LobbyData) -> None:
         self.dimension = lobby_data.server_settings.grid_dimension
+        # self.calculate()
 
     def next_move(self, game_state: GameState) -> ResponseAction:
         # Check if the agent is dead
@@ -381,29 +400,37 @@ class ExampleBot(HackathonBot):
 
         if not self.init:
             self.analize_map(game_state.map)
+        
+        if not self.visibility_cache:
+            self.calculate()
+        
+        pprint(len(self.visibility_cache.values()))
 
-            
+        if len(self.visibility_cache) != self.dimension ** 2 * 4 * 4:
+            return Pass()
+
         self.my_pos, self.my_tank = self.find_me(game_state)
 
+        # pprint(self.get_cached_result(self.my_tank.direction, self.my_tank, self.my_pos.x, self.my_pos.y))
 
-        if game_state.tick == 3:
-            pprint(self.my_pos)
-            pprint(self.my_tank)
-            temp = (self.fog_of_war_manager.calculate_visibility_grid(self.my_pos, self.my_tank.direction, self.my_tank.turret.direction))
+        # if game_state.tick == 3:
+        #     pprint(self.my_pos)
+        #     pprint(self.my_tank)
+        #     temp = (self.fog_of_war_manager.calculate_visibility_grid(self.my_pos, self.my_tank.direction, self.my_tank.turret.direction))
             
-            board = [['_' for _ in range(24)] for _ in range(24)]
-            # get vision
-            for pos in temp:
-                board[pos.y][pos.x] = 'X'
+        #     board = [['_' for _ in range(24)] for _ in range(24)]
+        #     # get vision
+        #     for pos in temp:
+        #         board[pos.y][pos.x] = 'X'
             
-            # get walls
-            for pos in self.get_walls():
-                board[pos.x][pos.y] = 'O'
+        #     # get walls
+        #     for pos in self.get_walls():
+        #         board[pos.x][pos.y] = 'O'
             
-            for row in board:
-                print(" ".join(row))
+        #     for row in board:
+        #         print(" ".join(row))
 
-            pprint(temp)
+        #     pprint(temp)
 
         self.update_visibility(game_state)
         self.update_bullets()
