@@ -1,0 +1,528 @@
+"""This is an example of a bot participating in the HackArena 2.0.
+
+This bot will randomly move around the map,
+use abilities and print the map to the console.
+"""
+
+import os
+import random
+from typing import Optional
+
+from hackathon_bot import *
+from dataclasses import dataclass
+
+PIERDOLNIK = True
+
+random.seed(0)
+
+def get_poses_for_zone(zone: Zone) -> list[tuple[int,int]]:
+    return [Pos(x+zone.x,y+zone.y) for x in range(zone.width) for y in range(zone.height)]
+
+@dataclass(frozen=True)
+class Pos():
+    x: int
+    y: int 
+
+
+opposite_dirs = {
+    Direction.DOWN: Direction.UP,
+    Direction.UP: Direction.DOWN,
+    Direction.LEFT: Direction.RIGHT,
+    Direction.RIGHT: Direction.LEFT
+}
+
+def get_move(direction) -> tuple[int, int]:
+    if direction == Direction.RIGHT:
+        return 0, 1
+    if direction == Direction.LEFT:
+        return 0, -1
+    if direction == Direction.UP:
+        return 1, -1
+    if direction == Direction.DOWN:
+        return 1, 1
+
+
+def taxicab(p1:Pos, p2:Pos):
+    return abs(p1.x-p2.x)+abs(p1.y-p2.y)
+
+def adjacent(tiles: tuple[tuple[Tile]], pos: Pos, visited: dict[Pos, Pos]) -> tuple[Pos]:
+    """Get adjacent tiles that aren't visited and arent a wall. Returns `Pos`!!!"""
+    cross = (Pos(pos.x+1,pos.y),Pos(pos.x-1,pos.y),Pos(pos.x,pos.y+1),Pos(pos.x,pos.y-1))
+    cross = (p for p in cross if p not in visited)
+    cross = (p for p in cross if p.x>=0 and p.x<len(tiles[0]) and p.y>=0 and p.y<len(tiles))
+    cross_tiles = ((p,tiles[p.y][p.x]) for p in cross) # tuple of (pos,tile) because tile is dumb
+    adj = [x[0] for x in cross_tiles if not any(isinstance(y, Wall) or isinstance(y, Mine) or isinstance(y,Laser) for y in x[1].entities)]
+    return adj
+
+def heur_select_next(stack:list[Pos]):
+    return 0
+
+
+def bfs(map: Map, start: Pos, stop_criterion: callable) -> Optional[list[Pos]]:
+    """Returns shortest path to a tile that matches criterion
+
+    Args:
+        map (Map): map
+        start (Pos): root of the search tree
+        stop_criterion (callable): function that evaluates whether the tile is what we are looking for
+
+    Returns:
+        Optional[list[Pos]]: Either list of positions to take, empty list (if at destination) or None, if impossible
+    """
+    cur = None
+    stack = [start]
+    parents = {start: None}
+    while True:
+        try:
+            cur = stack.pop(heur_select_next(stack))
+        except IndexError:
+            return None
+        if stop_criterion(cur):
+            path = [cur]
+            while True:
+                parent = parents[cur]
+                if parent==None:
+                    return path[:-1] # without current position
+                path.append(parent)
+                cur = parent
+        adj = adjacent(map.tiles,cur, parents)
+        for x in adj:
+            parents[x]=cur
+        stack.extend(adj)
+
+
+
+class ExampleBot(HackathonBot):
+
+    def __init__(self):
+        super().__init__()
+        self.my_pos: Pos = None
+        self.my_tank: AgentTank = None
+        self.enemies: list[PlayerTank] = []
+        self.enemies_pos: list[Pos] = []
+        self.last_action: str = None # "final" in tick
+        self.subtick_action: str = None # just a place to store it during a tick
+        self.fight_started: bool = False
+        self.current_zone_fight: Zone = None
+
+        
+        #zone fighter
+        self.last_corner: Pos = None
+
+    def action(func):
+        def inner(*args, **kwargs):
+            args[0].subtick_action=func.__name__
+            return func(*args, **kwargs)
+        return inner
+    
+    def get_next_corner(self, game_state: GameState, corner: Pos) -> Pos:
+        """This is to find enemy at our zone."""
+        zone_root = Pos(self.current_zone_fight.x, self.current_zone_fight.y)
+        if corner==zone_root:
+            return Pos(corner.x+self.current_zone_fight.width-1,corner.y+self.current_zone_fight.height-1)
+        else:
+            return zone_root
+    
+    def find_stuff(self, game_state: GameState):
+        for y,row in enumerate(game_state.map.tiles):
+            for x,tile in enumerate(row):
+                    for ent in tile.entities:
+                        if isinstance(ent, PlayerTank):
+                            if ent.owner_id==game_state.my_agent.id:
+                                self.my_pos=Pos(x,y)
+                                self.my_tank = ent
+                            else:
+                                self.enemies.append(ent)
+                                self.enemies_pos.append(Pos(x,y))
+    
+# --- common action parts
+
+    def move_towards(self, target:Pos, turret: bool):
+        """Moves tank towards target, or rotates it to make it possible in future.
+        
+        If turret==true, rotate turret instead.
+
+        Args:
+            target (Pos): _description_
+            turret (bool): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        deltax = target.x-self.my_pos.x
+        deltay = target.y-self.my_pos.y
+
+        # !!! Prioritize shorter axis, so that we enter the line of sight immediately.
+        if abs(deltax)<abs(deltay):
+            deltax=0
+        else:
+            deltay=0
+
+        checked_dir = self.my_tank.turret.direction if turret else self.my_tank.direction 
+
+        wishdir: Direction
+        if deltax>0:
+            wishdir=Direction.RIGHT
+        elif deltax<0:
+            wishdir=Direction.LEFT
+        elif deltay>0:
+            wishdir=Direction.DOWN
+        elif deltay<0:
+            wishdir=Direction.UP
+
+        if turret:
+            if wishdir==checked_dir:
+                return Pass()
+            elif wishdir==opposite_dirs[checked_dir]:
+                return Rotation(None, RotationDirection.LEFT) # arbitrary
+        else:
+            if wishdir==checked_dir:
+                return Movement(MovementDirection.FORWARD)
+            elif wishdir==opposite_dirs[checked_dir]:
+                return Movement(MovementDirection.BACKWARD)
+        if wishdir==Direction.UP and checked_dir==Direction.RIGHT or \
+            wishdir==Direction.RIGHT and checked_dir==Direction.DOWN or \
+            wishdir==Direction.DOWN and checked_dir==Direction.LEFT or \
+            wishdir==Direction.LEFT and checked_dir==Direction.UP:
+            if turret:
+                return Rotation(None, RotationDirection.LEFT)
+            else:
+                return Rotation(RotationDirection.LEFT, None)
+        elif wishdir==Direction.DOWN and checked_dir==Direction.RIGHT or \
+            wishdir==Direction.LEFT and checked_dir==Direction.DOWN or \
+            wishdir==Direction.UP and checked_dir==Direction.LEFT or \
+            wishdir==Direction.RIGHT and checked_dir==Direction.UP:
+            if turret:
+                return Rotation(None, RotationDirection.RIGHT)
+            else:
+                return Rotation(RotationDirection.RIGHT, None)
+        else:
+            raise RuntimeError("This shouldn't be possible")
+
+    def search(self, game_state: GameState, func: callable) -> Optional[ResponseAction]:
+        """Searches closest tile matching a criterion.
+
+        Args:
+            game_state (GameState): game
+            func (callable): function that takes `Pos` and returns True or False
+
+        Returns:
+            _type_: Action that advances player towards the goal. If goal can't be reached, returns `None`.
+        """
+        path = bfs(game_state.map, self.my_pos, func)
+        if path is None: # impossible path
+            return None
+        if not len(path): # at destination
+            return Pass()
+        next_step = path[-1]
+
+        if next_step in self.enemies_pos:
+            return self.shoot_tile(game_state, next_step)
+
+        return self.move_towards(next_step, turret=False)
+        
+#---- actions
+
+    @action
+    def rush_zones(self, game_state: GameState):
+
+        overwrite = None
+
+        def bullet_or_target_zone(pos: Pos):
+            tile = game_state.map.tiles[pos.y][pos.x]
+            if self.my_tank.secondary_item!=ItemType.LASER:
+                # if we don't have laser
+                for ent in tile.entities:
+                    if isinstance(ent, Item) and ent.type==ItemType.LASER:
+                        if taxicab(pos, self.my_pos)<5:
+                            # if laser is close, get rid of anything, and confirm target
+                            match self.my_tank.secondary_item:
+                                # get rid of anything
+                                case SecondaryItemType.DOUBLE_BULLET:
+                                    overwrite = AbilityUse(Ability.FIRE_DOUBLE_BULLET)
+                                case SecondaryItemType.MINE:
+                                    overwrite = AbilityUse(Ability.DROP_MINE)
+                                case SecondaryItemType.RADAR:
+                                    overwrite = AbilityUse(Ability.USE_RADAR)
+                            return True
+                
+            elif not self.my_tank.secondary_item:
+                for ent in tile.entities:
+                    if isinstance(ent, Item) and ent.type==ItemType.DOUBLE_BULLET:
+                        if taxicab(pos, self.my_pos)<2:
+                            return True
+            if tile.zone and not (isinstance(tile.zone, CapturedZone) and tile.zone.player_id==self.my_tank.owner_id):
+                return True
+            return False
+        
+        next_move = self.search(game_state, bullet_or_target_zone)
+        return overwrite if overwrite else next_move
+
+    @action
+    def go_to(self, game_state: GameState, target: Pos):
+        def is_target(pos: Pos):
+            return target==pos
+        
+        if isinstance(self.last_action,Movement) and self.my_pos==self.last_pos:
+            # unbug
+            return Rotation(RotationDirection.LEFT, RotationDirection.LEFT)
+        return self.search(game_state, is_target)
+    
+
+    @action
+    def go_to_direct_line(self, game_state: GameState, target: Pos):
+        def is_direct_to(pos: Pos):
+            x_axis = pos.x==target.x
+            y_axis = pos.y==target.y
+            if x_axis:
+                # look if everything between player and target is free
+                if pos.y<target.y:
+                    r = range(pos.y+1,target.y)
+                else:
+                    r = range(target.y+1,pos.y)
+                for yi in r:
+                    if any(isinstance(ent,Wall) for ent in game_state.map.tiles[yi][pos.x].entities):
+                        return False
+                return True
+            elif y_axis:
+                if pos.x<target.x:
+                    r = range(pos.x+1,target.x)
+                else:
+                    r = range(target.x+1, pos.x)
+                for xi in r:
+                    if any(isinstance(ent,Wall) for ent in game_state.map.tiles[pos.y][xi].entities):
+                        return False
+                return True
+            return False
+        
+        return self.search(game_state, is_direct_to)
+    
+    @action
+    def shoot_tile(self, game_state: GameState, enemy: Pos):
+        # find where I need to stand to shoot
+
+        rotation = self.move_towards(enemy, turret=True) # this is bad name, but it's goal is to rotate the turret, not move
+        
+        if not isinstance(rotation,Pass):
+            return rotation
+
+        # We are angled properly
+
+        next_move = self.go_to_direct_line(game_state, enemy)
+        if isinstance(next_move, Pass):
+            if self.my_tank.secondary_item==SecondaryItemType.LASER:
+                next_move = AbilityUse(Ability.USE_LASER)
+            elif self.my_tank.secondary_item==SecondaryItemType.DOUBLE_BULLET:
+                next_move = AbilityUse(Ability.FIRE_DOUBLE_BULLET)
+            else:
+                if self.my_tank.turret.bullet_count:
+                    next_move = AbilityUse(Ability.FIRE_BULLET)
+                else:
+                    if PIERDOLNIK and self.my_tank.turret.ticks_to_regenerate_bullet>1: #intentional
+                        if self.my_tank.direction==self.my_tank.turret.direction:
+                            # move sideways
+                            return Rotation(RotationDirection.LEFT,None)
+                        else:
+                            match self.my_tank.direction:
+                                # opposite
+                                case Direction.UP:
+                                    p = (0,1)
+                                case Direction.DOWN:
+                                    p = (0,-1)
+                                case Direction.RIGHT:
+                                    p = (-1,0)
+                                case Direction.LEFT:
+                                    p = (1,0)
+                            if any(isinstance(x,Wall) for x in game_state.map.tiles[self.my_pos.y+p[1]][self.my_pos.x+p[0]].entities):
+                                return Movement(MovementDirection.FORWARD)
+                            else:
+                                return Movement(MovementDirection.BACKWARD)
+
+        return next_move
+
+    def get_nearest_enemy(self, enemies: list[Pos], pos: Pos):
+        closest = None
+        min_dist = 999
+        for x in enemies:
+            if taxicab(x,pos)<min_dist:
+                min_dist=taxicab(x,pos)
+                closest = x
+        return closest
+
+    @action
+    def zone_fighter(self, game_state: GameState):
+        if len(self.enemies):
+            # we dont differentiate between enemies, if there are more then oh well
+            next_pos = self.shoot_tile(game_state, self.get_nearest_enemy(self.enemies_pos,self.my_pos))
+        else:
+            next_pos = self.go_to(game_state, self.next_corner)
+            if not next_pos or isinstance(next_pos,Pass): # at the corner
+                print("!!!CHANGE CORNER!!!")
+                self.next_corner = self.get_next_corner(game_state, self.next_corner)
+                next_pos = self.go_to(game_state, self.next_corner)
+        return next_pos
+
+    def is_corridor_behind(self, game_state: GameState):
+        if self.my_tank.direction==Direction.UP:
+            check = [Pos(self.my_pos.x-1,self.my_pos.y+1),Pos(self.my_pos.x+1,self.my_pos.y+1)]
+        elif self.my_tank.direction==Direction.DOWN:
+            check = [Pos(self.my_pos.x-1,self.my_pos.y-1),Pos(self.my_pos.x+1,self.my_pos.y-1)]
+        elif self.my_tank.direction==Direction.LEFT:
+            check = [Pos(self.my_pos.x+1,self.my_pos.y-1),Pos(self.my_pos.x+1,self.my_pos.y+1)]
+        else:
+            check = [Pos(self.my_pos.x-1,self.my_pos.y-1),Pos(self.my_pos.x-1,self.my_pos.y+1)]
+        
+        print("Checking:", check)
+        for tile in check:
+            print(any(isinstance(x,Wall) for x in game_state.map.tiles[tile.y][tile.x].entities))
+
+        #@TODO: replace with fast wall check
+        for tile in check:
+            if all(not isinstance(x,Wall) for x in game_state.map.tiles[tile.y][tile.x].entities):
+                return False
+        return True
+# --- actions end
+
+    def get_good_visibility_spot(self):
+        return Pos(self.my_pos.x+random.randint(-10,10)//9, self.my_pos.y+random.randint(-10,10)//9)
+
+    def decide_action(self, game_state: GameState):
+        next_move = None
+        if self.my_tank.secondary_item==SecondaryItemType.RADAR:
+            next_move=AbilityUse(Ability.USE_RADAR)
+        elif self.my_tank.secondary_item==SecondaryItemType.MINE:
+            if self.is_corridor_behind(game_state):
+                next_move=AbilityUse(Ability.DROP_MINE)
+        if not next_move and self.fight_started:
+            print("Figthing")
+            next_move = self.zone_fighter(game_state)
+            zone = game_state.map.tiles[self.my_pos.y][self.my_pos.x].zone
+            if zone and zone.status!=ZoneStatus.BEING_CONTESTED:
+                self.fight_started=False
+        elif not next_move:
+            print("Not fighting")
+            next_move = self.rush_zones(game_state)
+            if isinstance(next_move, Pass):
+                # if we arrived, check if this is a fight
+                zone = game_state.map.tiles[self.my_pos.y][self.my_pos.x].zone
+                if not zone:
+                    # we are at item and for some reason we can't pick it up
+                    print("!!!!!!!")
+                    print(self.my_tank.secondary_item)
+                    return Pass()
+                if zone.status==ZoneStatus.BEING_CONTESTED:
+                    if not self.fight_started:
+                        self.fight_started=True
+                        self.current_zone_fight=zone
+                        print("Fight at",zone.x,zone.y)
+                        self.next_corner=Pos(zone.x,zone.y)
+                    next_move = self.zone_fighter(game_state)
+                else:
+                    # capturing, spin instead of standing
+                    if len(self.enemies)==0:
+                        next_move=Rotation(RotationDirection.LEFT,RotationDirection.RIGHT)
+                    else:
+                        next_move = self.shoot_tile(game_state, self.get_nearest_enemy(self.enemies_pos,self.my_pos))
+
+
+            if next_move is None: # can't do that for some reason (no zones!)
+                guard_spot = self.get_good_visibility_spot()
+                next_move=self.go_to(game_state, guard_spot)
+
+        
+        self.last_action=self.subtick_action
+        return next_move
+
+
+    def on_lobby_data_received(self, lobby_data: LobbyData) -> None:
+        print(f"Lobby data received: {lobby_data}")
+        self.grid_dimension = lobby_data.server_settings.grid_dimension
+
+    def next_move(self, game_state: GameState) -> ResponseAction:
+        #self._print_map(game_state.map)
+
+        # Check if the agent is dead
+        if game_state.my_agent.is_dead:
+            self.fight_started=False
+            self.current_zone_fight=None
+            # Return pass to avoid warnings from the server
+            # when the bot tries to make an action with a dead tank
+            return Pass()
+
+        self.enemies = []
+        self.enemies_pos = []
+        self.find_stuff(game_state)
+        act = self.decide_action(game_state)
+        self.last_action = act
+        self.last_pos = self.my_pos
+        return act 
+
+    def on_game_ended(self, game_result: GameResult) -> None:
+        print(f"Game ended: {game_result}")
+
+    def on_warning_received(self, warning: WarningType, message: str | None) -> None:
+        print(f"Warning received: {warning} - {message}")
+
+    def _print_map(self, game_map: Map):
+        os.system("cls" if os.name == "nt" else "clear")
+        end = " "
+
+        for row in game_map.tiles:
+            for tile in row:
+                entity = tile.entities[0] if tile.entities else None
+
+                if isinstance(entity, Wall):
+                    print("#", end=end)
+                elif isinstance(entity, Laser):
+                    if entity.orientation is Orientation.HORIZONTAL:
+                        print("|", end=end)
+                    elif entity.orientation is Orientation.VERTICAL:
+                        print("-", end=end)
+                elif isinstance(entity, DoubleBullet):
+                    if entity.direction == Direction.UP:
+                        print("⇈", end=end)
+                    elif entity.direction == Direction.RIGHT:
+                        print("⇉", end=end)
+                    elif entity.direction == Direction.DOWN:
+                        print("⇊", end=end)
+                    elif entity.direction == Direction.LEFT:
+                        print("⇇", end=end)
+                elif isinstance(entity, Bullet):
+                    if entity.direction is Direction.UP:
+                        print("↑", end=end)
+                    elif entity.direction is Direction.RIGHT:
+                        print("→", end=end)
+                    elif entity.direction is Direction.DOWN:
+                        print("↓", end=end)
+                    elif entity.direction is Direction.LEFT:
+                        print("←", end=end)
+                elif isinstance(entity, AgentTank):
+                    print("A", end=end)
+                elif isinstance(entity, PlayerTank):
+                    print("P", end=end)
+                elif isinstance(entity, Mine):
+                    print("x" if entity.exploded else "X", end=end)
+                elif isinstance(entity, Item):
+                    match (entity.type):
+                        case SecondaryItemType.DOUBLE_BULLET:
+                            print("D", end=end)
+                        case SecondaryItemType.LASER:
+                            print("L", end=end)
+                        case SecondaryItemType.MINE:
+                            print("M", end=end)
+                        case SecondaryItemType.RADAR:
+                            print("R", end=end)
+                elif tile.zone:
+                    index = chr(tile.zone.index)
+                    index = index.upper() if tile.is_visible else index.lower()
+                    print(index, end=end)
+                elif tile.is_visible:
+                    print(".", end=end)
+                else:
+                    print(" ", end=end)
+            print()
+
+
+if __name__ == "__main__":
+    bot = ExampleBot()
+    bot.run()
