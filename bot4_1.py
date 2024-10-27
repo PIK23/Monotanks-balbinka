@@ -235,6 +235,10 @@ class ExampleBot(HackathonBot):
                                 return Rotation(RotationDirection.LEFT if obj_rot == Direction.LEFT else RotationDirection.RIGHT, None)
                             return distance
                     else:
+                        if self.my_tank.turret.direction % 2 == bullet.bullet.direction % 2 and \
+                            self.my_tank.turret.direction != bullet.bullet.direction and \
+                                self.my_tank.turret.bullet_count != 0:
+                            return AbilityUse(Ability.FIRE_DOUBLE_BULLET if self.my_tank.secondary_item == ItemType.DOUBLE_BULLET else Ability.FIRE_BULLET)
                         return 0  # unable to dodge
             if bullet.position[1] == obj_pos[1] and \
                 ((bullet.bullet.direction == Direction.UP and bullet.position[0] > obj_pos[0]) or
@@ -263,6 +267,10 @@ class ExampleBot(HackathonBot):
                                 return Rotation(RotationDirection.LEFT if obj_rot == Direction.UP else RotationDirection.RIGHT, None)
                             return distance
                     else:
+                        if self.my_tank.turret.direction % 2 == bullet.bullet.direction % 2 and \
+                            self.my_tank.turret.direction != bullet.bullet.direction and \
+                                self.my_tank.turret.bullet_count != 0:
+                            return AbilityUse(Ability.FIRE_DOUBLE_BULLET if self.my_tank.secondary_item == ItemType.DOUBLE_BULLET else Ability.FIRE_BULLET)
                         return 0  # unable to dodge
                         
 
