@@ -206,7 +206,7 @@ class ExampleBot(HackathonBot):
         self.bullets = self.predict_bullets()
     
     # for themself self.get_dodge_actions(self.my_pos, self.my_tank.direction)
-    def get_dodge_action(self, obj_pos, obj_rot) -> Movement | Rotation | None:
+    def get_dodge_action(self, obj_pos, obj_rot) -> Movement | Rotation | int:
         for bullet in self.bullets.values():
             # check if bullet is going towards tank
             if bullet.position[0] == obj_pos[0] and \
@@ -222,17 +222,20 @@ class ExampleBot(HackathonBot):
                         down_move = Pos(obj_pos[0], obj_pos[1] + 1)
                         if not self.wall_map[down_move.y][down_move.x]:
                             return Movement(MovementDirection.BACKWARD if obj_rot == Direction.UP else MovementDirection.FORWARD)
-                    elif abs(bullet.position[1] - obj_pos[1]) > 2:  # have time to execute 2 actions
-
+                    elif (distance := abs(bullet.position[1] - obj_pos[1])) > 2:  # have time to execute 2 actions
                         up_move = Pos(obj_pos[0], obj_pos[1] - 1)
                         if not self.wall_map[up_move.y][up_move.x]:
-                            return Rotation(RotationDirection.RIGHT if obj_rot == Direction.LEFT else RotationDirection.LEFT, None)
+                            if distance <= 7:
+                                return Rotation(RotationDirection.RIGHT if obj_rot == Direction.LEFT else RotationDirection.LEFT, None)
+                            return distance
 
                         down_move = Pos(obj_pos[0], obj_pos[1] + 1)
                         if not self.wall_map[down_move.y][down_move.x]:
-                            return Rotation(RotationDirection.LEFT if obj_rot == Direction.LEFT else RotationDirection.RIGHT, None)
+                            if distance <= 7:
+                                return Rotation(RotationDirection.LEFT if obj_rot == Direction.LEFT else RotationDirection.RIGHT, None)
+                            return distance
                     else:
-                        return None  # unable to dodge
+                        return 0  # unable to dodge
             if bullet.position[1] == obj_pos[1] and \
                 ((bullet.bullet.direction == Direction.UP and bullet.position[0] > obj_pos[0]) or
                 (bullet.bullet.direction == Direction.DOWN and bullet.position[0] < obj_pos[0])):
@@ -246,15 +249,19 @@ class ExampleBot(HackathonBot):
                         left_move = Pos(obj_pos[0] - 1, obj_pos[1])
                         if not self.wall_map[left_move.y][left_move.x]:
                             return Movement(MovementDirection.BACKWARD if obj_rot == Direction.RIGHT else MovementDirection.FORWARD)
-                    elif abs(bullet.position[0] - obj_pos[0]) > 2:  # have time to execute 2 actions
+                    elif (distance := abs(bullet.position[0] - obj_pos[0])) > 2:  # have time to execute 2 actions
 
                         right_move = Pos(obj_pos[0] + 1, obj_pos[1])
                         if not self.wall_map[right_move.y][right_move.x]:
-                            return Rotation(RotationDirection.RIGHT if obj_rot == Direction.UP else RotationDirection.LEFT, None)
+                            if distance <= 7:
+                                return Rotation(RotationDirection.RIGHT if obj_rot == Direction.UP else RotationDirection.LEFT, 0)
+                            return distance
 
                         left_move = Pos(obj_pos[0] - 1, obj_pos[1])
                         if not self.wall_map[left_move.y][left_move.x]:
-                            return Rotation(RotationDirection.LEFT if obj_rot == Direction.UP else RotationDirection.RIGHT, None)
+                            if distance <= 7:
+                                return Rotation(RotationDirection.LEFT if obj_rot == Direction.UP else RotationDirection.RIGHT, None)
+                            return distance
                     else:
                         return None  # unable to dodge
                         
@@ -583,6 +590,8 @@ class ExampleBot(HackathonBot):
     def next_move(self, game_state: GameState) -> ResponseAction:
         # Check if the agent is dead
         if game_state.my_agent.is_dead:
+            # if not self.visibility_cache:     # create cache for visibility
+            #     self.calculate()
             # Return pass to avoid warnings from the server
             # when the bot tries to make an action with a dead tank
             return Pass()
@@ -590,8 +599,6 @@ class ExampleBot(HackathonBot):
         if not self.init:
             self.analize_map(game_state.map)
 
-        # if not self.visibility_cache:     # create cache for visibility
-        #     self.calculate()
 
         self.find_stuff(game_state)
         self.update_bullets()  # get next bullets
