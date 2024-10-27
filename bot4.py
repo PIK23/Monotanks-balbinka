@@ -89,6 +89,7 @@ class ExampleBot(HackathonBot):
         self.last_action: str = None # "final" in tick
         self.subtick_action: str = None # just a place to store it during a tick
         self.fight_started: bool = False
+        self.current_zone_fight: Zone = None
 
         
         #zone fighter
@@ -102,10 +103,9 @@ class ExampleBot(HackathonBot):
     
     def get_next_corner(self, game_state: GameState, corner: Pos) -> Pos:
         """This is to find enemy at our zone."""
-        current_zone = game_state.map.tiles[corner.y][corner.x].zone
-        zone_root = Pos(current_zone.x, current_zone.y)
+        zone_root = Pos(self.current_zone_fight.x, self.current_zone_fight.y)
         if corner==zone_root:
-            return Pos(corner.x+current_zone.width,corner.y+current_zone.height)
+            return Pos(corner.x+self.current_zone_fight.width,corner.y+self.current_zone_fight.height)
         else:
             return zone_root
     
@@ -160,8 +160,8 @@ class ExampleBot(HackathonBot):
         if turret:
             if wishdir==checked_dir:
                 return Pass()
-            else:
-                return Rotation(None,RotationDirection.LEFT) # arbitrary
+            elif wishdir==opposite_dirs[checked_dir]:
+                return Rotation(None, RotationDirection.LEFT) # arbitrary
         else:
             if wishdir==checked_dir:
                 return Movement(MovementDirection.FORWARD)
@@ -183,6 +183,8 @@ class ExampleBot(HackathonBot):
                 return Rotation(None, RotationDirection.RIGHT)
             else:
                 return Rotation(RotationDirection.RIGHT, None)
+        else:
+            raise RuntimeError("This shouldn't be possible")
 
     def search(self, game_state: GameState, func: callable) -> Optional[ResponseAction]:
         """Searches closest tile matching a criterion.
@@ -311,6 +313,7 @@ class ExampleBot(HackathonBot):
                 if zone.status==ZoneStatus.BEING_CONTESTED:
                     if not self.fight_started:
                         self.fight_started=True
+                        self.current_zone_fight=zone
                         self.next_corner=Pos(zone.x,zone.y)
                     next_move = self.zone_fighter(game_state)
 
