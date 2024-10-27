@@ -207,7 +207,6 @@ class ExampleBot(HackathonBot):
     # for themself self.get_dodge_actions(self.my_pos, self.my_tank.direction)
     def get_dodge_action(self, obj_pos, obj_rot) -> Movement | Rotation | int:
         for bullet in self.bullets.values():
-            print(bullet)
             # check if bullet is going towards tank
             if bullet.position[0] == obj_pos[0] and \
                 ((bullet.bullet.direction == Direction.RIGHT and bullet.position[1] <= obj_pos[1]) or
