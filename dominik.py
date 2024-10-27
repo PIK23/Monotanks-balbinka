@@ -18,7 +18,6 @@ class MyBot(HackathonBot):
         self.direction: Direction = None
         self.turretDirection: Direction = None
         self.dimension = None
-        Tile
 
     def analize_map(self, map: Map):
         self.notwallmap = [[False for _ in range(self.dimension)] for _ in range(self.dimension)]

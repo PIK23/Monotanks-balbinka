@@ -16,7 +16,7 @@ class ExampleBot(HackathonBot):
         print(f"Lobby data received: {lobby_data}")
 
     def next_move(self, game_state: GameState) -> ResponseAction:
-        self._print_map(game_state.map)
+        # self._print_map(game_state.map)
 
         # Check if the agent is dead
         if game_state.my_agent.is_dead:
