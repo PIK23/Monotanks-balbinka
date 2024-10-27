@@ -11,10 +11,6 @@ from typing import Optional
 from hackathon_bot import *
 from dataclasses import dataclass
 
-PIERDOLNIK = True
-
-random.seed(0)
-
 def get_poses_for_zone(zone: Zone) -> list[tuple[int,int]]:
     return [Pos(x+zone.x,y+zone.y) for x in range(zone.width) for y in range(zone.height)]
 
@@ -31,16 +27,6 @@ opposite_dirs = {
     Direction.RIGHT: Direction.LEFT
 }
 
-def get_move(direction) -> tuple[int, int]:
-    if direction == Direction.RIGHT:
-        return 0, 1
-    if direction == Direction.LEFT:
-        return 0, -1
-    if direction == Direction.UP:
-        return 1, -1
-    if direction == Direction.DOWN:
-        return 1, 1
-
 
 def taxicab(p1:Pos, p2:Pos):
     return abs(p1.x-p2.x)+abs(p1.y-p2.y)
@@ -51,7 +37,7 @@ def adjacent(tiles: tuple[tuple[Tile]], pos: Pos, visited: dict[Pos, Pos]) -> tu
     cross = (p for p in cross if p not in visited)
     cross = (p for p in cross if p.x>=0 and p.x<len(tiles[0]) and p.y>=0 and p.y<len(tiles))
     cross_tiles = ((p,tiles[p.y][p.x]) for p in cross) # tuple of (pos,tile) because tile is dumb
-    adj = [x[0] for x in cross_tiles if not any(isinstance(y, Wall) or isinstance(y, Mine) or isinstance(y,Laser) for y in x[1].entities)]
+    adj = [x[0] for x in cross_tiles if not any(isinstance(y, Wall) for y in x[1].entities)]
     return adj
 
 def heur_select_next(stack:list[Pos]):
@@ -119,7 +105,7 @@ class ExampleBot(HackathonBot):
         """This is to find enemy at our zone."""
         zone_root = Pos(self.current_zone_fight.x, self.current_zone_fight.y)
         if corner==zone_root:
-            return Pos(corner.x+self.current_zone_fight.width-1,corner.y+self.current_zone_fight.height-1)
+            return Pos(corner.x+self.current_zone_fight.width,corner.y+self.current_zone_fight.height)
         else:
             return zone_root
     
@@ -132,6 +118,7 @@ class ExampleBot(HackathonBot):
                                 self.my_pos=Pos(x,y)
                                 self.my_tank = ent
                             else:
+                                print(game_state.tick,"enemy:",ent)
                                 self.enemies.append(ent)
                                 self.enemies_pos.append(Pos(x,y))
     
@@ -226,46 +213,23 @@ class ExampleBot(HackathonBot):
     @action
     def rush_zones(self, game_state: GameState):
 
-        overwrite = None
-
-        def bullet_or_target_zone(pos: Pos):
+        def is_not_my_zone(pos: Pos):
             tile = game_state.map.tiles[pos.y][pos.x]
-            if self.my_tank.secondary_item!=ItemType.LASER:
-                # if we don't have laser
-                for ent in tile.entities:
-                    if isinstance(ent, Item) and ent.type==ItemType.LASER:
-                        if taxicab(pos, self.my_pos)<5:
-                            # if laser is close, get rid of anything, and confirm target
-                            match self.my_tank.secondary_item:
-                                # get rid of anything
-                                case SecondaryItemType.DOUBLE_BULLET:
-                                    overwrite = AbilityUse(Ability.FIRE_DOUBLE_BULLET)
-                                case SecondaryItemType.MINE:
-                                    overwrite = AbilityUse(Ability.DROP_MINE)
-                                case SecondaryItemType.RADAR:
-                                    overwrite = AbilityUse(Ability.USE_RADAR)
-                            return True
-                
-            elif not self.my_tank.secondary_item:
-                for ent in tile.entities:
-                    if isinstance(ent, Item) and ent.type==ItemType.DOUBLE_BULLET:
-                        if taxicab(pos, self.my_pos)<2:
-                            return True
-            if tile.zone and not (isinstance(tile.zone, CapturedZone) and tile.zone.player_id==self.my_tank.owner_id):
-                return True
-            return False
+            for ent in tile.entities:
+                if isinstance(ent, Item) and ent.type==ItemType.DOUBLE_BULLET:
+                    if taxicab(pos, self.my_pos)<2:
+                        return True
+            if isinstance(tile.zone, CapturedZone) and tile.zone.player_id==self.my_tank.owner_id:
+                return False
+            return tile.zone is not None
         
-        next_move = self.search(game_state, bullet_or_target_zone)
-        return overwrite if overwrite else next_move
-
+        return self.search(game_state, is_not_my_zone)
+    
     @action
     def go_to(self, game_state: GameState, target: Pos):
         def is_target(pos: Pos):
             return target==pos
         
-        if isinstance(self.last_action,Movement) and self.my_pos==self.last_pos:
-            # unbug
-            return Rotation(RotationDirection.LEFT, RotationDirection.LEFT)
         return self.search(game_state, is_target)
     
 
@@ -296,6 +260,15 @@ class ExampleBot(HackathonBot):
             return False
         
         return self.search(game_state, is_direct_to)
+
+    @action
+    def collect_pickups(self,game_state: GameState):
+        def is_pickup(pos: Pos):
+            tile = game_state.map.tiles[pos.y][pos.x]
+            if isinstance(tile, Item):
+                return True
+            return False
+        return self.search(game_state, is_pickup)
     
     @action
     def shoot_tile(self, game_state: GameState, enemy: Pos):
@@ -310,54 +283,20 @@ class ExampleBot(HackathonBot):
 
         next_move = self.go_to_direct_line(game_state, enemy)
         if isinstance(next_move, Pass):
-            if self.my_tank.secondary_item==SecondaryItemType.LASER:
-                next_move = AbilityUse(Ability.USE_LASER)
-            elif self.my_tank.secondary_item==SecondaryItemType.DOUBLE_BULLET:
+            if self.my_tank.secondary_item==SecondaryItemType.DOUBLE_BULLET:
                 next_move = AbilityUse(Ability.FIRE_DOUBLE_BULLET)
             else:
-                if self.my_tank.turret.bullet_count:
-                    next_move = AbilityUse(Ability.FIRE_BULLET)
-                else:
-                    if PIERDOLNIK and self.my_tank.turret.ticks_to_regenerate_bullet>1: #intentional
-                        if self.my_tank.direction==self.my_tank.turret.direction:
-                            # move sideways
-                            return Rotation(RotationDirection.LEFT,None)
-                        else:
-                            match self.my_tank.direction:
-                                # opposite
-                                case Direction.UP:
-                                    p = (0,1)
-                                case Direction.DOWN:
-                                    p = (0,-1)
-                                case Direction.RIGHT:
-                                    p = (-1,0)
-                                case Direction.LEFT:
-                                    p = (1,0)
-                            if any(isinstance(x,Wall) for x in game_state.map.tiles[self.my_pos.y+p[1]][self.my_pos.x+p[0]].entities):
-                                return Movement(MovementDirection.FORWARD)
-                            else:
-                                return Movement(MovementDirection.BACKWARD)
-
+                next_move = AbilityUse(Ability.FIRE_BULLET)
         return next_move
-
-    def get_nearest_enemy(self, enemies: list[Pos], pos: Pos):
-        closest = None
-        min_dist = 999
-        for x in enemies:
-            if taxicab(x,pos)<min_dist:
-                min_dist=taxicab(x,pos)
-                closest = x
-        return closest
 
     @action
     def zone_fighter(self, game_state: GameState):
         if len(self.enemies):
             # we dont differentiate between enemies, if there are more then oh well
-            next_pos = self.shoot_tile(game_state, self.get_nearest_enemy(self.enemies_pos,self.my_pos))
+            next_pos = self.shoot_tile(game_state, self.enemies_pos[0])
         else:
             next_pos = self.go_to(game_state, self.next_corner)
             if not next_pos or isinstance(next_pos,Pass): # at the corner
-                print("!!!CHANGE CORNER!!!")
                 self.next_corner = self.get_next_corner(game_state, self.next_corner)
                 next_pos = self.go_to(game_state, self.next_corner)
         return next_pos
@@ -372,15 +311,11 @@ class ExampleBot(HackathonBot):
         else:
             check = [Pos(self.my_pos.x-1,self.my_pos.y-1),Pos(self.my_pos.x-1,self.my_pos.y+1)]
         
-        print("Checking:", check)
-        for tile in check:
-            print(any(isinstance(x,Wall) for x in game_state.map.tiles[tile.y][tile.x].entities))
-
         #@TODO: replace with fast wall check
         for tile in check:
-            if all(not isinstance(x,Wall) for x in game_state.map.tiles[tile.y][tile.x].entities):
-                return False
-        return True
+            if all(isinstance(x,Wall) for x in game_state.map.tiles[tile.y][tile.x].entities):
+                return True
+        return False
 # --- actions end
 
     def get_good_visibility_spot(self):
@@ -405,24 +340,12 @@ class ExampleBot(HackathonBot):
             if isinstance(next_move, Pass):
                 # if we arrived, check if this is a fight
                 zone = game_state.map.tiles[self.my_pos.y][self.my_pos.x].zone
-                if not zone:
-                    # we are at item and for some reason we can't pick it up
-                    print("!!!!!!!")
-                    print(self.my_tank.secondary_item)
-                    return Pass()
                 if zone.status==ZoneStatus.BEING_CONTESTED:
                     if not self.fight_started:
                         self.fight_started=True
                         self.current_zone_fight=zone
-                        print("Fight at",zone.x,zone.y)
                         self.next_corner=Pos(zone.x,zone.y)
                     next_move = self.zone_fighter(game_state)
-                else:
-                    # capturing, spin instead of standing
-                    if len(self.enemies)==0:
-                        next_move=Rotation(RotationDirection.LEFT,RotationDirection.RIGHT)
-                    else:
-                        next_move = self.shoot_tile(game_state, self.get_nearest_enemy(self.enemies_pos,self.my_pos))
 
 
             if next_move is None: # can't do that for some reason (no zones!)
@@ -443,8 +366,6 @@ class ExampleBot(HackathonBot):
 
         # Check if the agent is dead
         if game_state.my_agent.is_dead:
-            self.fight_started=False
-            self.current_zone_fight=None
             # Return pass to avoid warnings from the server
             # when the bot tries to make an action with a dead tank
             return Pass()
@@ -452,10 +373,7 @@ class ExampleBot(HackathonBot):
         self.enemies = []
         self.enemies_pos = []
         self.find_stuff(game_state)
-        act = self.decide_action(game_state)
-        self.last_action = act
-        self.last_pos = self.my_pos
-        return act 
+        return self.decide_action(game_state) 
 
     def on_game_ended(self, game_result: GameResult) -> None:
         print(f"Game ended: {game_result}")
