@@ -125,6 +125,9 @@ class ExampleBot(HackathonBot):
         self.mines: List[Pos] = []
         self.init: bool = False
         self.dimension = None
+        
+        self.dangerous_zone = None
+        self.dangerous_ticks = 0
 
         self.visibility_cache = defaultdict()
   
@@ -479,7 +482,7 @@ class ExampleBot(HackathonBot):
 
         def is_not_my_zone(pos: Pos):
             tile = game_state.map.tiles[pos.y][pos.x]
-            if isinstance(tile.zone, CapturedZone) and tile.zone.player_id==self.my_tank.owner_id:
+            if (isinstance(tile.zone, CapturedZone) and tile.zone.player_id==self.my_tank.owner_id) or (tile.zone and tile.zone.index == self.dangerous_zone and self.dangerous_ticks > 0):
                 return False
             return tile.zone is not None
         
@@ -598,8 +601,10 @@ class ExampleBot(HackathonBot):
     def next_move(self, game_state: GameState) -> ResponseAction:
         # Check if the agent is dead
         if game_state.my_agent.is_dead:
-            # if not self.visibility_cache:     # create cache for visibility
-            #     self.calculate()
+            self.fight_started = False
+            self.current_zone_fight = None
+            if self.dangerous_ticks != 50:
+                self.dangerous_ticks = 50
             # Return pass to avoid warnings from the server
             # when the bot tries to make an action with a dead tank
             return Pass()
@@ -610,6 +615,15 @@ class ExampleBot(HackathonBot):
 
         self.find_stuff(game_state)
         self.update_bullets()  # get next bullets
+
+        if self.dangerous_ticks > 0:
+            self.dangerous_ticks -= 1
+            if self.dangerous_ticks == 0:
+                self.dangerous_zone = None
+
+        if zone := game_state.map.tiles[self.my_pos.y][self.my_pos.x].zone:
+            self.dangerous_ticks = 0
+            self.dangerous_zone = zone.index
 
         action = self.get_dodge_action(self.my_pos, self.my_tank.direction)
         if isinstance(action, ResponseAction):
