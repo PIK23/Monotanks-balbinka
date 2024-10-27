@@ -108,7 +108,8 @@ class ExampleBot(HackathonBot):
         self.my_tank: AgentTank = None
         self.enemies: Dict[str, EnemyData] = defaultdict()
         self.bullets: Dict[str, BulletData] = defaultdict()
-        self.wall_map: List[Pos] = []
+        self.wall_map: List[List[bool]] = []
+        self.mines: List[Pos] = []
         self.init: bool = False
         self.dimension = None
 
@@ -230,6 +231,22 @@ class ExampleBot(HackathonBot):
                     self.enemies[entity.owner_id] = EnemyData(entity.turret, entity.direction, position, True) 
                 if isinstance(entity, Bullet):
                     self.bullets[entity.id] = BulletData(entity, position)
+                if isinstance(entity, Mine):
+                    self.mines.append(Pos(x, y))
+
+    def place_mine(self):
+        x, y = self.my_pos.x, self.my_pos.y
+        match self.my_tank.direction:
+            case Direction.UP:
+                self.mines.append(Pos(x, y+1))
+            case Direction.RIGHT:
+                self.mines.append(Pos(x-1, y))
+            case Direction.DOWN:
+                self.mines.append(Pos(x, y-1))
+            case Direction.LEFT:
+                self.mines.append(Pos(x+1, y))
+
+        return AbilityUse(Ability.DROP_MINE)
 
     def go_to(self, game_state: GameState, target: Pos):
         path = bfs(game_state.map, self.my_pos, target)
