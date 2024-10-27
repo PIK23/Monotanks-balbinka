@@ -394,7 +394,7 @@ class ExampleBot(HackathonBot):
             board = [['_' for _ in range(24)] for _ in range(24)]
             # get vision
             for pos in temp:
-                board[pos.x][pos.y] = 'X'
+                board[pos.y][pos.x] = 'X'
             
             # get walls
             for pos in self.get_walls():

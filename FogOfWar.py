@@ -33,10 +33,10 @@ class FogOfWarManager:
         while not queue.empty():
             x, y = queue.get()
 
-            if visited[x][y] or self.wall_grid[x][y]:
+            if visited[y][x] or self.wall_grid[y][x]:
                 continue
 
-            visited[x][y] = True
+            visited[y][x] = True
 
             is_visible = (self.is_cell_visible(tank_position, (x + 0.25, y + 0.25), view_angle, tank_direction) or
                           self.is_cell_visible(tank_position, (x + 0.25, y + 0.75), view_angle, tank_direction) or
@@ -65,19 +65,19 @@ class FogOfWarManager:
         step_x, step_y = 0, 0
 
         match tur_rot:
-            case 'Up':
+            case Direction.UP:
                 start_y, end_y, step_y = obj_pos.y, -1, -1
-            case 'Right':
+            case Direction.RIGHT:
                 start_x, end_x, step_x = obj_pos.x, self.width, 1
-            case 'Down':
+            case Direction.DOWN:
                 start_y, end_y, step_y = obj_pos.y, self.height, 1
-            case 'Left':
+            case Direction.LEFT:
                 start_x, end_x, step_x = obj_pos.x, -1, -1
 
         x, y = start_x, start_y
 
         while x != end_x or y != end_y:
-            if self.wall_grid[x][y]:
+            if self.wall_grid[y][x]:
                 break
 
             positions.append(Pos(x, y))
@@ -110,7 +110,7 @@ class FogOfWarManager:
         while True:
             ix, iy = math.floor(x0), math.floor(y0)
 
-            if self.wall_grid[ix][iy]:
+            if self.wall_grid[iy][ix]:
                 return False
 
             if abs(x0 - x1) < threshold and abs(y0 - y1) < threshold:
