@@ -116,12 +116,12 @@ class ExampleBot(HackathonBot):
     
     def calculate(self):
         rotations = [Direction.UP, Direction.RIGHT, Direction.DOWN, Direction.LEFT]
-        walls = self.get_walls()
+
         for tank_rot in rotations:
             for tur_rot in rotations:
                 for x in range(self.dimension):
                     for y in range(self.dimension):
-                        if Pos(x, y) not in walls:
+                        if not self.wall_map[y][x]:
                             key = (tank_rot, tur_rot, x, y)
                             self.visibility_cache[key] = self.fog_of_war_manager.calculate_visibility_grid(Pos(x, y), tank_rot, tur_rot)
 
@@ -279,14 +279,6 @@ class ExampleBot(HackathonBot):
         
         return self.go_to(game_state, closest)
 
-    def get_walls(self):
-        true_positions = []
-        for x, row in enumerate(self.wall_map):     
-            for y, value in enumerate(row):             
-                if value:                              
-                    true_positions.append(Pos(x, y))      
-        return true_positions
-
     def predict_bullets(self):
         destoyed_bullets = []
         next_bullets = deepcopy(self.bullets)
@@ -299,14 +291,11 @@ class ExampleBot(HackathonBot):
             for _ in range(2):  # bullet.bullet.speed
                 x, y = next_bullets[id].position[0], next_bullets[id].position[1]
                 next_bullets[id].position = Pos(x + direction if index == 0 else x, y + direction if index == 1 else y)       # TODO change assingment: TypeError: 'Pos' object does not support item assignment
-                if next_bullets[id].position in self.get_walls():  # czyli jest w ścianie #TODO dodać że także czołg może
+                if self.wall_map[next_bullets[id].position.y][next_bullets[id].position.x]:  # czyli jest w ścianie #TODO dodać że także czołg może
                     destoyed_bullets.append(id)
         
         for bullet_id in destoyed_bullets:
             next_bullets.pop(bullet_id, None)
-
-        if len(next_bullets.values()) != 0:
-            pprint(f"Result: {next_bullets}")
 
         return next_bullets
     
@@ -322,25 +311,23 @@ class ExampleBot(HackathonBot):
                 (bullet.bullet.direction == Direction.LEFT and bullet.position[1] > obj_pos[1])):
                     if obj_rot in [Direction.DOWN, Direction.UP]:  # check if bullet and tank directions crosses
                         # check if up or down is not a wall
-                        walls = self.get_walls()
 
                         up_move = Pos(obj_pos[0], obj_pos[1] - 1)
-                        if up_move not in walls:
+                        if not self.wall_map[up_move.y][up_move.x]:
                             return Movement(MovementDirection.FORWARD if obj_rot == Direction.UP else MovementDirection.BACKWARD)
 
                         down_move = Pos(obj_pos[0], obj_pos[1] + 1)
-                        if down_move not in walls:
+                        if not self.wall_map[down_move.y][down_move.x]:
                             return Movement(MovementDirection.BACKWARD if obj_rot == Direction.UP else MovementDirection.FORWARD)
                     elif abs(bullet.position[1] - obj_pos[1]) > 2:  # have time to execute 2 actions
-                        walls = self.get_walls()
 
                         up_move = Pos(obj_pos[0], obj_pos[1] - 1)
-                        if up_move not in walls:
+                        if not self.wall_map[up_move.y][up_move.x]:
                             return Rotation(RotationDirection.RIGHT if obj_rot == Direction.LEFT else RotationDirection.LEFT, None)
 
                         down_move = Pos(obj_pos[0], obj_pos[1] + 1)
-                        if down_move not in walls:
-                            return Movement(RotationDirection.LEFT if obj_rot == Direction.LEFT else RotationDirection.RIGHT, None)
+                        if not self.wall_map[down_move.y][down_move.x]:
+                            return Rotation(RotationDirection.LEFT if obj_rot == Direction.LEFT else RotationDirection.RIGHT, None)
                     else:
                         return None  # unable to dodge
             if bullet.position[1] == obj_pos[1] and \
@@ -348,25 +335,23 @@ class ExampleBot(HackathonBot):
                 (bullet.bullet.direction == Direction.DOWN and bullet.position[0] < obj_pos[0])):
                     if obj_rot in [Direction.LEFT, Direction.RIGHT]:  # check if bullet and tank directions crosses
                         # check if up or down is not a wall
-                        walls = self.get_walls()
 
                         right_move = Pos(obj_pos[0] + 1, obj_pos[1])
-                        if right_move not in walls:
+                        if not self.wall_map[right_move.y][right_move.x]:
                             return Movement(MovementDirection.FORWARD if obj_rot == Direction.RIGHT else MovementDirection.BACKWARD)
 
                         left_move = Pos(obj_pos[0] - 1, obj_pos[1])
-                        if left_move not in walls:
+                        if not self.wall_map[left_move.y][left_move.x]:
                             return Movement(MovementDirection.BACKWARD if obj_rot == Direction.RIGHT else MovementDirection.FORWARD)
                     elif abs(bullet.position[0] - obj_pos[0]) > 2:  # have time to execute 2 actions
-                        walls = self.get_walls()
 
                         right_move = Pos(obj_pos[0] + 1, obj_pos[1])
-                        if right_move not in walls:
+                        if not self.wall_map[right_move.y][right_move.x]:
                             return Rotation(RotationDirection.RIGHT if obj_rot == Direction.UP else RotationDirection.LEFT, None)
 
                         left_move = Pos(obj_pos[0] - 1, obj_pos[1])
-                        if left_move not in walls:
-                            return Movement(RotationDirection.LEFT if obj_rot == Direction.UP else RotationDirection.RIGHT, None)
+                        if not self.wall_map[left_move.y][left_move.x]:
+                            return Rotation(RotationDirection.LEFT if obj_rot == Direction.UP else RotationDirection.RIGHT, None)
                     else:
                         return None  # unable to dodge
     
@@ -401,13 +386,13 @@ class ExampleBot(HackathonBot):
         if not self.init:
             self.analize_map(game_state.map)
         
-        if not self.visibility_cache:
-            self.calculate()
+        # if not self.visibility_cache:
+        #     self.calculate()
         
-        pprint(len(self.visibility_cache.values()))
+        # pprint(len(self.visibility_cache.values()))
 
-        if len(self.visibility_cache) != self.dimension ** 2 * 4 * 4:
-            return Pass()
+        # if len(self.visibility_cache) != self.dimension ** 2 * 4 * 4:
+        #     return Pass()
 
         self.my_pos, self.my_tank = self.find_me(game_state)
 
@@ -421,11 +406,7 @@ class ExampleBot(HackathonBot):
         #     board = [['_' for _ in range(24)] for _ in range(24)]
         #     # get vision
         #     for pos in temp:
-        #         board[pos.y][pos.x] = 'X'
-            
-        #     # get walls
-        #     for pos in self.get_walls():
-        #         board[pos.x][pos.y] = 'O'
+        #         board[pos.y][pos.x] = 'X'  
             
         #     for row in board:
         #         print(" ".join(row))
@@ -433,9 +414,11 @@ class ExampleBot(HackathonBot):
         #     pprint(temp)
 
         self.update_visibility(game_state)
+        pprint(self.bullets)
+
         self.update_bullets()
 
-        # return self.brain(game_state)
+        return self.brain(game_state)
 
     def on_game_ended(self, game_result: GameResult) -> None:
         print(f"Game ended: {game_result}")
