@@ -284,10 +284,10 @@ class HackathonBot(ABC):
             response_action = self.next_move(game_state)
         except KeyboardInterrupt as e:
             raise e
-        #except Exception as e:  # pylint: disable=broad-except
-        #    print(f"An error occurred during next move: {e}")
-        #    print(traceback.format_exc())
-        #    return
+        except Exception as e:  # pylint: disable=broad-except
+           print(f"An error occurred during next move: {e}")
+           print(traceback.format_exc())
+           return
         finally:
             self._is_processing = False
 

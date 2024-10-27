@@ -19,4 +19,4 @@ RUN pip install -r requirements.txt
 COPY . .
 
 # Run the bot
-ENTRYPOINT [ "python", "-u", "example.py" ]
+ENTRYPOINT [ "python", "-u", "main.py" ]
