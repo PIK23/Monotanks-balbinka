@@ -121,7 +121,7 @@ class ExampleBot(HackathonBot):
             for tur_rot in rotations:
                 for x in range(self.dimension):
                     for y in range(self.dimension):
-                        if Pos(x, y) not in self.wall_map:
+                        if Pos(x, y) not in walls:
                             key = (tank_rot, tur_rot, x, y)
                             self.visibility_cache[key] = self.fog_of_war_manager.calculate_visibility_grid(Pos(x, y), tank_rot, tur_rot)
 
