@@ -178,7 +178,6 @@ class ExampleBot(HackathonBot):
                                 self.my_pos=Pos(x,y)
                                 self.my_tank = ent
                             else:
-                                print(game_state.tick,"enemy:",ent)
                                 self.enemies[ent.owner_id] = EnemyData(ent.turret.direction, ent.direction, Pos(x, y), True)
                         if isinstance(ent, Bullet):
                             self.bullets[ent.id] = BulletData(ent, Pos(x, y))
@@ -208,10 +207,11 @@ class ExampleBot(HackathonBot):
     # for themself self.get_dodge_actions(self.my_pos, self.my_tank.direction)
     def get_dodge_action(self, obj_pos, obj_rot) -> Movement | Rotation | int:
         for bullet in self.bullets.values():
+            print(bullet)
             # check if bullet is going towards tank
             if bullet.position[0] == obj_pos[0] and \
-                ((bullet.bullet.direction == Direction.RIGHT and bullet.position[1] < obj_pos[1]) or
-                (bullet.bullet.direction == Direction.LEFT and bullet.position[1] > obj_pos[1])):
+                ((bullet.bullet.direction == Direction.RIGHT and bullet.position[1] <= obj_pos[1]) or
+                (bullet.bullet.direction == Direction.LEFT and bullet.position[1] >= obj_pos[1])):
                     if obj_rot in [Direction.DOWN, Direction.UP]:  # check if bullet and tank directions crosses
                         # check if up or down is not a wall
 
@@ -241,8 +241,8 @@ class ExampleBot(HackathonBot):
                             return AbilityUse(Ability.FIRE_DOUBLE_BULLET if self.my_tank.secondary_item == ItemType.DOUBLE_BULLET else Ability.FIRE_BULLET)
                         return 0  # unable to dodge
             if bullet.position[1] == obj_pos[1] and \
-                ((bullet.bullet.direction == Direction.UP and bullet.position[0] > obj_pos[0]) or
-                (bullet.bullet.direction == Direction.DOWN and bullet.position[0] < obj_pos[0])):
+                ((bullet.bullet.direction == Direction.UP and bullet.position[0] >= obj_pos[0]) or
+                (bullet.bullet.direction == Direction.DOWN and bullet.position[0] <= obj_pos[0])):
                     if obj_rot in [Direction.LEFT, Direction.RIGHT]:  # check if bullet and tank directions crosses
                         # check if up or down is not a wall
 
@@ -272,6 +272,7 @@ class ExampleBot(HackathonBot):
                                 self.my_tank.turret.bullet_count != 0:
                             return AbilityUse(Ability.FIRE_DOUBLE_BULLET if self.my_tank.secondary_item == ItemType.DOUBLE_BULLET else Ability.FIRE_BULLET)
                         return 0  # unable to dodge
+        return 0
                         
 
     def analize_map(self, map: Map):
@@ -610,6 +611,10 @@ class ExampleBot(HackathonBot):
 
         self.find_stuff(game_state)
         self.update_bullets()  # get next bullets
+
+        action = self.get_dodge_action(self.my_pos, self.my_tank.direction)
+        if isinstance(action, ResponseAction):
+            return action
         return self.decide_action(game_state) 
 
     def on_game_ended(self, game_result: GameResult) -> None:
